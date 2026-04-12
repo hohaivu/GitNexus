@@ -1,24 +1,17 @@
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-GITNEXUS_DIR="$SCRIPT_DIR/../gitnexus"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-cd "$GITNEXUS_DIR"
+echo "→ Installing dependencies..."
+cd "$REPO_ROOT"
+pnpm install
 
-# Reinstall deps if node_modules missing
-if [ ! -d node_modules ]; then
-  echo "[rebuild] node_modules missing — installing..."
-  npm install --ignore-scripts
-  (cd node_modules/@ladybugdb/core && node install.js) 2>/dev/null || true
-  node scripts/build-tree-sitter-dart.cjs
-  node scripts/build-tree-sitter-proto.cjs
-fi
+echo "→ Building gitnexus..."
+pnpm --filter gitnexus build
 
-echo "[rebuild] building..."
-pnpm run build
-
-echo "[rebuild] linking globally..."
+echo "→ Linking globally (replaces any npm-installed version)..."
+cd "$REPO_ROOT/gitnexus"
 npm link
 
-echo "[rebuild] done — $(gitnexus --version)"
+echo "✓ Done. Run: gitnexus --version"

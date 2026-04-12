@@ -11,7 +11,7 @@ const execFileMock = vi.fn((...args: any[]) => {
 });
 
 // By default, execFileSync throws (simulating `which gitnexus` not found).
-// Setup still writes deterministic MCP entries that invoke `gitnexus mcp`.
+// Tests that expect setup to succeed must override this to return a binary path.
 
 const execFileSyncMock = vi.fn((): string => {
   throw new Error('not found');
@@ -65,7 +65,7 @@ describe('setupClaudeCode', () => {
     await fs.rm(tempHome, { recursive: true, force: true });
   });
 
-  it('writes MCP entry with literal command (macOS)', async () => {
+  it('writes MCP entry with resolved local binary path (macOS)', async () => {
     setPlatform('darwin');
     execFileSyncMock.mockReturnValueOnce('/usr/local/bin/gitnexus\n');
 
@@ -76,12 +76,12 @@ describe('setupClaudeCode', () => {
     const config = JSON.parse(raw);
 
     expect(config.mcpServers.gitnexus).toEqual({
-      command: 'gitnexus',
+      command: '/usr/local/bin/gitnexus',
       args: ['mcp'],
     });
   });
 
-  it('writes MCP entry with literal command (Windows)', async () => {
+  it('writes MCP entry with resolved local binary path (Windows)', async () => {
     setPlatform('win32');
     execFileSyncMock.mockReturnValueOnce('C:\\Users\\user\\AppData\\Roaming\\npm\\gitnexus.cmd\n');
 
@@ -92,12 +92,12 @@ describe('setupClaudeCode', () => {
     const config = JSON.parse(raw);
 
     expect(config.mcpServers.gitnexus).toEqual({
-      command: 'gitnexus',
+      command: 'C:\\Users\\user\\AppData\\Roaming\\npm\\gitnexus.cmd',
       args: ['mcp'],
     });
   });
 
-  it('warns but still writes literal MCP entry when gitnexus not on PATH', async () => {
+  it('fails with actionable error when gitnexus not on PATH', async () => {
     setPlatform('darwin');
     // execFileSyncMock default throws — binary not found
 
@@ -105,14 +105,10 @@ describe('setupClaudeCode', () => {
     const { setupCommand } = await import('../../src/cli/setup.js');
     await setupCommand();
 
-    expect(process.exitCode).toBe(originalExitCode);
-    const raw = await fs.readFile(path.join(tempHome, '.claude.json'), 'utf-8');
-    const config = JSON.parse(raw);
-    expect(config.mcpServers.gitnexus).toEqual({
-      command: 'gitnexus',
-      args: ['mcp'],
-    });
-    expect(console.log).toHaveBeenCalledWith('  Warning: gitnexus binary not found on PATH.');
+    expect(process.exitCode).toBe(1);
+    // ~/.claude.json must NOT be written when binary is missing
+    await expect(fs.access(path.join(tempHome, '.claude.json'))).rejects.toThrow();
+    process.exitCode = originalExitCode;
   });
 
   it('skips when ~/.claude directory does not exist', async () => {
@@ -178,7 +174,7 @@ describe('setupClaudeCode', () => {
     expect(raw).toBe(corrupt);
   });
 
-  it('ignores resolved binary path when gitnexus is on PATH', async () => {
+  it('uses resolved binary path when gitnexus is on PATH', async () => {
     setPlatform('darwin');
     execFileSyncMock.mockReturnValueOnce('/usr/local/bin/gitnexus\n');
 
@@ -189,7 +185,7 @@ describe('setupClaudeCode', () => {
     const config = JSON.parse(raw);
 
     expect(config.mcpServers.gitnexus).toEqual({
-      command: 'gitnexus',
+      command: '/usr/local/bin/gitnexus',
       args: ['mcp'],
     });
   });
@@ -283,6 +279,7 @@ describe('setupClaudeCode', () => {
 
   it('copies hook-db-lock-probe.cjs and win-rm-list-json.ps1 to ~/.claude/hooks/gitnexus/', async () => {
     setPlatform('linux');
+    execFileSyncMock.mockReturnValueOnce('/usr/local/bin/gitnexus\n');
 
     const { setupCommand } = await import('../../src/cli/setup.js');
     await setupCommand();

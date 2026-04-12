@@ -546,16 +546,24 @@ const analyzeCommandImpl = async (inputPath?: string, options?: AnalyzeOptions):
     aborted = true;
     bar.stop();
     console.log('\n  Interrupted — cleaning up...');
+    const cleanupAndExit = async () => {
+      const { flushLoggerSync } = await import('../core/logger.js');
+      flushLoggerSync();
+      process.exit(130);
+    };
+
     if (activeWorker && activeWorker.exitCode === null && !activeWorker.killed) {
       try {
         activeWorker.kill('SIGTERM');
       } catch {
         /* best-effort */
       }
-      setTimeout(() => process.exit(130), 500).unref();
+      setTimeout(() => {
+        cleanupAndExit().catch(() => process.exit(130));
+      }, 500).unref();
       return;
     }
-    process.exit(130);
+    cleanupAndExit().catch(() => process.exit(130));
   };
   process.on('SIGINT', sigintHandler);
 
