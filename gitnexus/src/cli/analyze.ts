@@ -3,16 +3,18 @@
  *
  * Indexes a repository and stores the knowledge graph in .gitnexus/
  *
- * Delegates core analysis to the shared runFullAnalysis orchestrator.
- * This CLI wrapper handles: heap management, progress bar, SIGINT,
- * skill generation (--skills), summary output, and process.exit().
+ * Delegates core analysis to a forked worker running the shared
+ * runFullAnalysis orchestrator. This isolates the CLI from native
+ * addon crashes that can happen during process teardown after success.
+ *
+ * This CLI wrapper handles: heap management, worker lifecycle,
+ * progress bar, SIGINT, skill generation (--skills), and summary output.
  */
 
 import path from 'path';
-import { execFileSync } from 'child_process';
+import { execFileSync, fork, type ChildProcess } from 'child_process';
 import v8 from 'v8';
 import cliProgress from 'cli-progress';
-import { closeLbug } from '../core/lbug/lbug-adapter.js';
 import { isWalCorruptionError, WAL_RECOVERY_SUGGESTION } from '../core/lbug/lbug-config.js';
 import {
   getStoragePaths,
@@ -22,13 +24,15 @@ import {
   assertAnalysisFinalized,
 } from '../storage/repo-manager.js';
 import { getGitRoot, hasGitDir } from '../storage/git.js';
-import { runFullAnalysis } from '../core/run-analyze.js';
+import type { AnalyzeResult } from '../core/run-analyze.js';
 import { getMaxFileSizeBannerMessage } from '../core/ingestion/utils/max-file-size.js';
 import { warnMissingOptionalGrammars } from './optional-grammars.js';
 import { glob } from 'glob';
 import fs from 'fs/promises';
 import { cliError } from './cli-message.js';
 import { isHfDownloadFailure } from '../core/embeddings/hf-env.js';
+import { createRequire } from 'module';
+import { fileURLToPath, pathToFileURL } from 'url';
 
 // Capture stderr.write at module load BEFORE anything (LadybugDB native
 // init, progress bar, console redirection) can monkey-patch it. The
@@ -78,6 +82,7 @@ const HEAP_FLAG = `--max-old-space-size=${RESPAWN_HEAP_MB}`;
 /** Increase default stack size (KB) to prevent stack overflow on deep class hierarchies. */
 const STACK_KB = 4096;
 const STACK_FLAG = `--stack-size=${STACK_KB}`;
+const _require = createRequire(import.meta.url);
 
 /**
  * Heuristic for "child re-exec likely died from V8 OOM".
@@ -535,18 +540,22 @@ const analyzeCommandImpl = async (inputPath?: string, options?: AnalyzeOptions):
   // (buffered) — flush before exit so in-flight records reach stderr.
   // See `gitnexus/src/core/logger.ts:flushLoggerSync`.
   let aborted = false;
+  let activeWorker: ChildProcess | null = null;
   const sigintHandler = () => {
     if (aborted) process.exit(1);
     aborted = true;
     bar.stop();
     console.log('\n  Interrupted — cleaning up...');
-    closeLbug()
-      .catch(() => {})
-      .finally(async () => {
-        const { flushLoggerSync } = await import('../core/logger.js');
-        flushLoggerSync();
-        process.exit(130);
-      });
+    if (activeWorker && activeWorker.exitCode === null && !activeWorker.killed) {
+      try {
+        activeWorker.kill('SIGTERM');
+      } catch {
+        /* best-effort */
+      }
+      setTimeout(() => process.exit(130), 500).unref();
+      return;
+    }
+    process.exit(130);
   };
   process.on('SIGINT', sigintHandler);
 
@@ -596,50 +605,122 @@ const analyzeCommandImpl = async (inputPath?: string, options?: AnalyzeOptions):
 
   const t0 = Date.now();
 
-  // ── Run shared analysis orchestrator ───────────────────────────────
+  // ── Run analysis in a worker to isolate native shutdown crashes ────
   try {
     const skipAll = options?.indexOnly;
     const skipAgentsMd = skipAll || options?.skipAgentsMd;
     const skipSkills = skipAll || options?.skipSkills;
-    const result = await runFullAnalysis(
-      repoPath,
-      {
-        // Pipeline re-index — OR'd with --skills because skill generation
-        // needs a fresh pipelineResult. Has no bearing on the registry
-        // collision guard (see allowDuplicateName below).
-        force: options?.force || options?.skills,
-        repairFts: options?.repairFts,
-        embeddings: embeddingsEnabled,
-        embeddingsNodeLimit,
-        dropEmbeddings: options?.dropEmbeddings,
-        verbose: options?.verbose,
-        skipGit: options?.skipGit,
-        skipAgentsMd,
-        skipSkills,
-        // commander.js `.option('--no-stats', …)` registers the flag as
-        // `options.stats` (boolean, default true; `false` when the user
-        // passed --no-stats). Reading `options?.noStats` here returns
-        // undefined every time, so the flag was a no-op on the markdown
-        // rewrite path before this fix. See #1477.
-        noStats: options?.stats === false,
-        registryName: options?.name,
-        // Registry-collision bypass — its own CLI flag, intentionally NOT
-        // overloading --force. A user who hits the collision guard should
-        // be able to accept the duplicate name without also paying the
-        // cost of a full pipeline re-index. See #829 review round 2.
-        allowDuplicateName: options?.allowDuplicateName,
-        // Worker pool size threaded from --workers, replacing the previous
-        // GITNEXUS_WORKER_POOL_SIZE env mutation. `undefined` defers to the
-        // env / auto-formula fallback inside the pipeline.
-        workerPoolSize,
-      },
-      {
-        onProgress: (_phase, percent, message) => {
-          updateBar(percent, message);
+    const result = await new Promise<AnalyzeResult>((resolve, reject) => {
+      const callerPath = fileURLToPath(import.meta.url);
+      const isDev = callerPath.endsWith('.ts');
+      const workerFile = isDev ? 'analyze-worker.ts' : 'analyze-worker.js';
+      const workerPath = path.join(path.dirname(callerPath), '..', 'server', workerFile);
+      const tsxHookArgs: string[] = isDev
+        ? ['--import', pathToFileURL(_require.resolve('tsx/esm')).href]
+        : [];
+      const env = options?.verbose ? { ...process.env, GITNEXUS_VERBOSE: '1' } : { ...process.env };
+
+      let settled = false;
+      let stderrChunks = '';
+
+      const finish = (fn: () => void) => {
+        if (settled) return;
+        settled = true;
+        activeWorker = null;
+        fn();
+      };
+
+      const child = fork(workerPath, [], {
+        execArgv: [...tsxHookArgs, HEAP_FLAG, STACK_FLAG],
+        stdio: ['ignore', 'ignore', 'pipe', 'ipc'],
+        env,
+      });
+      activeWorker = child;
+
+      child.stderr?.on('data', (chunk: Buffer) => {
+        stderrChunks += chunk.toString();
+        if (stderrChunks.length > 4096) stderrChunks = stderrChunks.slice(-4096);
+      });
+
+      child.on('message', (msg: any) => {
+        if (msg?.type === 'progress') {
+          if (msg.phase === 'log' || msg.percent === -1) {
+            barLog(msg.message);
+          } else {
+            updateBar(msg.percent, msg.message);
+          }
+          return;
+        }
+
+        if (msg?.type === 'complete') {
+          finish(() => resolve(msg.result as AnalyzeResult));
+          return;
+        }
+
+        if (msg?.type === 'error') {
+          finish(() => reject(new Error(msg.message || 'Analysis failed')));
+        }
+      });
+
+      child.on('error', (err) => {
+        finish(() => reject(err));
+      });
+
+      child.on('exit', (code, signal) => {
+        if (aborted) {
+          process.exit(130);
+          return;
+        }
+        if (settled) return;
+
+        const lastErr = stderrChunks.trim().split('\n').pop() || '';
+        const detail = lastErr
+          ? `: ${lastErr}`
+          : signal
+            ? ` (signal ${signal})`
+            : code !== null
+              ? ` (code ${code})`
+              : '';
+
+        finish(() => reject(new Error(`Analyze worker exited unexpectedly${detail}`)));
+      });
+
+      child.send({
+        type: 'start',
+        repoPath,
+        options: {
+          // Pipeline re-index — OR'd with --skills because skill generation
+          // needs a fresh pipelineResult. Has no bearing on the registry
+          // collision guard (see allowDuplicateName below).
+          force: options?.force || options?.skills,
+          repairFts: options?.repairFts,
+          embeddings: embeddingsEnabled,
+          embeddingsNodeLimit,
+          dropEmbeddings: options?.dropEmbeddings,
+          verbose: options?.verbose,
+          skipGit: options?.skipGit,
+          skipAgentsMd,
+          skipSkills,
+          // commander.js `.option('--no-stats', …)` registers the flag as
+          // `options.stats` (boolean, default true; `false` when the user
+          // passed --no-stats). Reading `options?.noStats` here returns
+          // undefined every time, so the flag was a no-op on the markdown
+          // rewrite path before this fix. See #1477.
+          noStats: options?.stats === false,
+          registryName: options?.name,
+          // Registry-collision bypass — its own CLI flag, intentionally NOT
+          // overloading --force. A user who hits the collision guard should
+          // be able to accept the duplicate name without also paying the
+          // cost of a full pipeline re-index. See #829 review round 2.
+          allowDuplicateName: options?.allowDuplicateName,
+          // Worker pool size threaded from --workers, replacing the previous
+          // GITNEXUS_WORKER_POOL_SIZE env mutation. `undefined` defers to the
+          // env / auto-formula fallback inside the pipeline.
+          workerPoolSize,
+          includePipelineResult: !!options?.skills,
         },
-        onLog: barLog,
-      },
-    );
+      });
+    });
 
     if (result.alreadyUpToDate) {
       // Even the fast path must prove the repo is discoverable. A prior
@@ -656,8 +737,6 @@ const analyzeCommandImpl = async (inputPath?: string, options?: AnalyzeOptions):
       console.error = origError;
       bar.stop();
       console.log('  Already up to date\n');
-      // Safe to return without process.exit(0) — the early-return path in
-      // runFullAnalysis never opens LadybugDB, so no native handles prevent exit.
       return;
     }
 
@@ -904,9 +983,4 @@ const analyzeCommandImpl = async (inputPath?: string, options?: AnalyzeOptions):
     process.exitCode = 1;
     return;
   }
-
-  // LadybugDB's native module holds open handles that prevent Node from exiting.
-  // ONNX Runtime also registers native atexit hooks that segfault on some
-  // platforms (#38, #40). Force-exit to ensure clean termination.
-  process.exit(0);
 };

@@ -93,6 +93,8 @@ export interface AnalyzeOptions {
    */
   dropEmbeddings?: boolean;
   skipGit?: boolean;
+  /** Return the raw pipeline result to the caller (e.g. for --skills). */
+  includePipelineResult?: boolean;
   /** Skip AGENTS.md and CLAUDE.md gitnexus block updates. */
   skipAgentsMd?: boolean;
   /** Omit volatile symbol/relationship counts from AGENTS.md and CLAUDE.md. */
@@ -969,7 +971,7 @@ export async function runFullAnalysis(
       repoName: projectName,
       repoPath,
       stats: meta.stats,
-      pipelineResult,
+      pipelineResult: options.includePipelineResult ? pipelineResult : undefined,
     };
   } catch (err) {
     // Ensure LadybugDB is closed even on error

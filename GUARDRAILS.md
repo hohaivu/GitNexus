@@ -18,8 +18,8 @@ Maintainer may widen scope per task.
 1. **Never commit secrets** — API keys, tokens, real `.env` values, private URLs, session cookies. Use `.env.example` with placeholders.
 2. **Never rename with find-and-replace** in GitNexus-indexed projects — use `rename` MCP tool with `dry_run: true` first, review `graph` vs `text_search` edits. No separate `gitnexus rename` CLI exists.
 3. **Run impact analysis before editing shared symbols** — `impact` (upstream) for functions/classes/methods others call. Do not ignore HIGH/CRITICAL without maintainer sign-off.
-4. **Run `detect_changes` before commit** — confirm diffs map to expected symbols/processes when the graph is available.
-5. **Preserve embeddings** — plain `npx gitnexus analyze` now preserves any embeddings recorded in `.gitnexus/meta.json` (the previous behavior wiped them). Use `--embeddings` to also generate vectors for new/changed nodes; use `--drop-embeddings` only when an explicit wipe is intended (e.g., model swap).
+4. **Prefer `detect_changes` before commit** — confirm diffs map to expected symbols/processes when the graph is available.
+5. **Preserve embeddings** — plain `gitnexus analyze` now preserves any embeddings recorded in `.gitnexus/meta.json` (the previous behavior wiped them). Use `--embeddings` to also generate vectors for new/changed nodes; use `--drop-embeddings` only when an explicit wipe is intended (e.g., model swap).
 
 ---
 
@@ -29,9 +29,9 @@ Format: **Trigger → Instruction → Reason**. Append new Signs when the same m
 
 ### Stale graph after edits
 
-- **Trigger:** MCP warns index is behind `HEAD`, or search doesn't match latest commit.
-- **Do:** `npx gitnexus analyze` (plus `--embeddings` if used). Runs incrementally by default — the pipeline parses every file every run (cross-file resolution requires it), but tree-sitter dispatch is skipped for unchanged file chunks via the content-addressed cache, and only changed-file rows (plus their importers, transitively) are rewritten in LadybugDB.
-- **Why:** Tools query LadybugDB from last analyze; git changes are invisible until re-indexed.
+- **Trigger:** MCP or resources warn the index is behind `HEAD`, or code search doesn’t match latest commit.
+- **Instruction:** Run `gitnexus analyze` from the repo root (plus `--embeddings` if used). Runs incrementally by default — the pipeline parses every file every run (cross-file resolution requires it), but tree-sitter dispatch is skipped for unchanged file chunks via the content-addressed cache, and only changed-file rows (plus their importers, transitively) are rewritten in LadybugDB.
+- **Reason:** Tools query LadybugDB built at last analyze; git changes are invisible until re-indexed.
 
 ### Index seems corrupt or "incremental" is misbehaving
 
@@ -41,15 +41,15 @@ Format: **Trigger → Instruction → Reason**. Append new Signs when the same m
 
 ### Embeddings vanished after analyze
 
-- **Trigger:** Semantic search quality drops; `stats.embeddings` in `meta.json` is 0 after refresh.
-- **Do:** Re-run `npx gitnexus analyze --embeddings` to regenerate. Check the analyze log for a `Warning: could not load cached embeddings` line — if present, the cache restore failed (corrupt DB / schema mismatch) and the rebuild had nothing to preserve. If you intentionally passed `--drop-embeddings`, this is expected.
-- **Why:** Plain `analyze` preserves prior vectors by re-inserting them after the rebuild; the only ways to end up at zero are an explicit `--drop-embeddings`, a cache-load failure (now logged), or a model/dimension change that invalidates the cache.
+- **Trigger:** Semantic search quality drops; `stats.embeddings` in `.gitnexus/meta.json` is 0 after refresh.
+- **Instruction:** Re-run `gitnexus analyze --embeddings` to regenerate. Check the analyze log for a `Warning: could not load cached embeddings` line — if present, the cache restore failed (corrupt DB / schema mismatch) and the rebuild had nothing to preserve. If you intentionally passed `--drop-embeddings`, this is expected.
+- **Reason:** Plain `analyze` preserves prior vectors by re-inserting them after the rebuild; the only ways to end up at zero are an explicit `--drop-embeddings`, a cache-load failure (now logged), or a model/dimension change that invalidates the cache.
 
 ### MCP lists no repos
 
 - **Trigger:** MCP stderr says no indexed repos.
-- **Do:** `npx gitnexus analyze` in the target repo; verify `npx gitnexus list` shows it.
-- **Why:** MCP discovers repos via `~/.gitnexus/registry.json`, populated by analyze.
+- **Instruction:** Run `gitnexus analyze` in the target repo; verify `gitnexus list` shows it.
+- **Reason:** MCP discovers repos via `~/.gitnexus/registry.json`, populated by analyze.
 
 ### Wrong repo in multi-repo setups
 
