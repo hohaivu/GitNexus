@@ -420,6 +420,125 @@ function getCodexMcpTomlSection(bin: string): string {
 }
 
 /**
+ * Add `codex_hooks = true` under the `[features]` section of Codex's config.toml.
+ * Creates the section if absent. Idempotent.
+ */
+async function upsertCodexFeatureFlag(configPath: string): Promise<void> {
+  let existing = '';
+  try {
+    existing = await fs.readFile(configPath, 'utf-8');
+  } catch {
+    existing = '';
+  }
+
+  if (/codex_hooks\s*=\s*true/.test(existing)) return;
+
+  let next: string;
+  if (/^\[features\]/m.test(existing)) {
+    // Append the key right after the [features] header line.
+    next = existing.replace(/(\[features\][^\n]*)(\n)/, '$1$2codex_hooks = true\n');
+  } else {
+    const prefix = existing.trim().length > 0 ? `${existing.trimEnd()}\n\n` : '';
+    next = `${prefix}[features]\ncodex_hooks = true\n`;
+  }
+
+  await fs.mkdir(path.dirname(configPath), { recursive: true });
+  await fs.writeFile(configPath, next.endsWith('\n') ? next : `${next}\n`, 'utf-8');
+}
+
+/**
+ * Merge GitNexus hook entries into ~/.codex/hooks.json idempotently.
+ * Non-GitNexus entries are preserved.
+ */
+async function mergeCodexHooksJson(hooksPath: string, hookCmd: string): Promise<void> {
+  const existing = (await readJsonFile(hooksPath)) || {};
+  if (!Array.isArray(existing.hooks)) existing.hooks = [];
+
+  const GITNEXUS_MARKER = 'gitnexus';
+
+  // Remove stale GitNexus entries so re-runs stay clean.
+  existing.hooks = existing.hooks.filter(
+    (h: any) => typeof h.name !== 'string' || !h.name.startsWith(GITNEXUS_MARKER),
+  );
+
+  // Codex currently only supports Bash for PreToolUse / PostToolUse.
+  existing.hooks.push(
+    {
+      name: 'gitnexus-pre',
+      event: 'PreToolUse',
+      matcher: 'Bash',
+      command: hookCmd,
+    },
+    {
+      name: 'gitnexus-post',
+      event: 'PostToolUse',
+      matcher: 'Bash',
+      command: hookCmd,
+    },
+  );
+
+  await writeJsonFile(hooksPath, existing);
+}
+
+/**
+ * Install GitNexus Codex hooks into ~/.codex/.
+ *
+ * Steps:
+ *   1. Enable the codex_hooks feature flag in ~/.codex/config.toml.
+ *   2. Copy the bundled hook script to ~/.codex/hooks/gitnexus/.
+ *   3. Merge GitNexus hook registrations into ~/.codex/hooks.json.
+ *
+ * Skipped on Windows — Codex hooks are not currently supported there.
+ */
+async function installCodexHooks(result: SetupResult): Promise<void> {
+  const codexDir = path.join(os.homedir(), '.codex');
+  if (!(await dirExists(codexDir))) return;
+
+  if (process.platform === 'win32') {
+    result.skipped.push('Codex hooks (not supported on Windows)');
+    return;
+  }
+
+  const configPath = path.join(codexDir, 'config.toml');
+  const pluginHookSrc = path.join(__dirname, '..', '..', 'hooks', 'codex', 'gitnexus-hook.cjs');
+  const destHooksDir = path.join(codexDir, 'hooks', 'gitnexus');
+  const destHookScript = path.join(destHooksDir, 'gitnexus-hook.cjs');
+  const hooksJsonPath = path.join(codexDir, 'hooks.json');
+
+  try {
+    // 1. Enable feature flag.
+    await upsertCodexFeatureFlag(configPath);
+
+    // 2. Copy hook script to stable user-level path.
+    await fs.mkdir(destHooksDir, { recursive: true });
+    try {
+      let content = await fs.readFile(pluginHookSrc, 'utf-8');
+      // Inject resolved CLI path so the copied script survives package upgrades.
+      const resolvedCli = path.join(__dirname, '..', 'cli', 'index.js');
+      const normalizedCli = path.resolve(resolvedCli).replace(/\\/g, '/');
+      const jsonCli = JSON.stringify(normalizedCli);
+      content = content.replace(
+        "let cliPath = path.resolve(__dirname, '..', '..', 'dist', 'cli', 'index.js');",
+        `let cliPath = ${jsonCli};`,
+      );
+      await fs.writeFile(destHookScript, content, 'utf-8');
+      await fs.chmod(destHookScript, 0o755);
+    } catch {
+      // Hook source not found — skip script copy.
+    }
+
+    // 3. Merge hook registrations.
+    const scriptPath = destHookScript.replace(/\\/g, '/');
+    const hookCmd = `node "${scriptPath.replace(/"/g, '\\"')}"`;
+    await mergeCodexHooksJson(hooksJsonPath, hookCmd);
+
+    result.configured.push('Codex hooks (PreToolUse + PostToolUse, Bash-scoped, experimental)');
+  } catch (err: any) {
+    result.errors.push(`Codex hooks: ${err.message}`);
+  }
+}
+
+/**
  * Append GitNexus MCP server config to Codex's config.toml if missing.
  */
 async function upsertCodexConfigToml(configPath: string, bin: string): Promise<void> {
@@ -648,6 +767,7 @@ export const setupCommand = async () => {
   await installCursorSkills(result);
   await installOpenCodeSkills(result);
   await installCodexSkills(result);
+  await installCodexHooks(result);
 
   // Print results
   if (result.configured.length > 0) {

@@ -119,11 +119,13 @@ To configure MCP for your editor, run `gitnexus setup` once — or set it up man
 | --------------------- | --- | ------ | -------------------- | -------------- |
 | **Claude Code** | Yes | Yes    | Yes (PreToolUse + PostToolUse) | **Full** |
 | **Cursor**      | Yes | Yes    | —                   | MCP + Skills   |
-| **Codex**       | Yes | Yes    | —                   | MCP + Skills   |
+| **Codex**       | Yes | Yes    | Yes (PostToolUse + PreToolUse, Bash-scoped, experimental) | MCP + Skills + Hooks |
 | **Windsurf**    | Yes | —     | —                   | MCP            |
 | **OpenCode**    | Yes | Yes    | —                   | MCP + Skills   |
 
 > **Claude Code** gets the deepest integration: MCP tools + agent skills + PreToolUse hooks that enrich searches with graph context + PostToolUse hooks that detect a stale index after commits and prompt the agent to reindex.
+>
+> **Codex** also gets hooks (Bash-scoped, experimental): PostToolUse stale-index reminders and PreToolUse graph-context augmentation for `rg`/`grep` commands. Hooks require `codex_hooks = true` in `~/.codex/config.toml` (set automatically by `gitnexus setup`). Windows is not currently supported.
 
 ## Community Integrations
 
@@ -144,11 +146,13 @@ If you prefer manual configuration:
 claude mcp add gitnexus -- gitnexus mcp
 ```
 
-**Codex** (full support — MCP + skills):
+**Codex** (MCP + skills + experimental hooks):
 
 ```bash
 codex mcp add gitnexus -- gitnexus mcp
 ```
+
+> Hooks are installed automatically by `gitnexus setup`. They require the `codex_hooks` feature flag and are Bash-scoped only (no Grep/Glob interception). Not supported on Windows.
 
 **Cursor** (`~/.cursor/mcp.json` — global, works for all projects):
 

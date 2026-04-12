@@ -149,9 +149,9 @@ Indexed as **GitNexus** (4325 symbols, 10556 relationships, 300 execution flows)
 ## Keeping the Index Fresh
 
 ```bash
-npx gitnexus analyze                 # basic refresh; preserves any existing embeddings
-npx gitnexus analyze --embeddings    # also generate embeddings for new/changed nodes
-npx gitnexus analyze --drop-embeddings  # explicit opt-in to wipe existing embeddings
+gitnexus analyze                 # basic refresh; preserves any existing embeddings
+gitnexus analyze --embeddings    # also generate embeddings for new/changed nodes
+gitnexus analyze --drop-embeddings  # explicit opt-in to wipe existing embeddings
 ```
 
 Check `.gitnexus/meta.json` `stats.embeddings` (0 = none). A plain `analyze` no longer drops existing vectors — pass `--drop-embeddings` to wipe.

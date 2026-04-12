@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
@@ -89,14 +89,16 @@ describe('setupCommand skills integration', () => {
   });
 
   it('falls back to Codex config.toml and installs skills into ~/.agents/skills when codex CLI is unavailable', async () => {
+    // Create .codex dir — codex binary is not installed in the test environment,
+    // so setupCodex falls back to writing config.toml directly.
     await fs.mkdir(path.join(tempHome, '.codex'), { recursive: true });
-    process.env.PATH = '';
 
     await setupCommand();
 
     const codexConfig = await fs.readFile(path.join(tempHome, '.codex', 'config.toml'), 'utf-8');
     expect(codexConfig).toContain('[mcp_servers.gitnexus]');
-    expect(codexConfig).toContain('gitnexus@latest');
+    // config.toml now contains the resolved binary path (npx was removed in v1.6.0).
+    expect(codexConfig).toContain('command =');
 
     const codexSkill = await fs.readFile(
       path.join(tempHome, '.agents', 'skills', 'gitnexus-cli', 'SKILL.md'),
@@ -107,7 +109,6 @@ describe('setupCommand skills integration', () => {
 
   it('does not duplicate the Codex MCP section on repeated fallback setup runs', async () => {
     await fs.mkdir(path.join(tempHome, '.codex'), { recursive: true });
-    process.env.PATH = '';
 
     await setupCommand();
     await setupCommand();
@@ -116,5 +117,114 @@ describe('setupCommand skills integration', () => {
     const sectionMatches = codexConfig.match(/\[mcp_servers\.gitnexus\]/g) ?? [];
 
     expect(sectionMatches).toHaveLength(1);
+  });
+});
+
+/**
+ * Codex hook setup tests — isolated describe block with per-test HOME and
+ * original PATH so that `resolveGitnexusBin()` succeeds (required for
+ * `setupCommand` to reach the `installCodexHooks` step).
+ */
+describe('setupCommand Codex hook setup', () => {
+  let tempHome: string;
+  const originalHome = process.env.HOME;
+  const originalUserProfile = process.env.USERPROFILE;
+  const originalPath = process.env.PATH;
+
+  beforeEach(async () => {
+    // Fresh isolated home per test — no shared PATH='' side-effects.
+    tempHome = await fs.mkdtemp(path.join(os.tmpdir(), 'gn-codex-hook-'));
+    process.env.HOME = tempHome;
+    process.env.USERPROFILE = tempHome;
+    process.env.PATH = originalPath; // Always restore before each test.
+    await fs.mkdir(path.join(tempHome, '.codex'), { recursive: true });
+  });
+
+  afterEach(async () => {
+    process.env.HOME = originalHome;
+    process.env.USERPROFILE = originalUserProfile;
+    process.env.PATH = originalPath;
+    await fs.rm(tempHome, { recursive: true, force: true });
+  });
+
+  it('enables codex_hooks feature flag in config.toml', async () => {
+    await setupCommand();
+
+    const codexConfig = await fs.readFile(path.join(tempHome, '.codex', 'config.toml'), 'utf-8');
+    expect(codexConfig).toContain('codex_hooks = true');
+  });
+
+  it('does not duplicate codex_hooks flag on repeated setup runs', async () => {
+    await setupCommand();
+    await setupCommand();
+
+    const codexConfig = await fs.readFile(path.join(tempHome, '.codex', 'config.toml'), 'utf-8');
+    const flagMatches = codexConfig.match(/codex_hooks\s*=\s*true/g) ?? [];
+    expect(flagMatches).toHaveLength(1);
+  });
+
+  it('adds codex_hooks under existing [features] section without overwriting it', async () => {
+    const configPath = path.join(tempHome, '.codex', 'config.toml');
+    await fs.writeFile(configPath, '[features]\nsome_other_flag = true\n', 'utf-8');
+
+    await setupCommand();
+
+    const codexConfig = await fs.readFile(configPath, 'utf-8');
+    expect(codexConfig).toContain('some_other_flag = true');
+    expect(codexConfig).toContain('codex_hooks = true');
+    expect((codexConfig.match(/\[features\]/g) ?? []).length).toBe(1);
+  });
+
+  it('writes hooks.json with PreToolUse and PostToolUse Bash-only entries on non-Windows', async () => {
+    if (process.platform === 'win32') return;
+
+    await setupCommand();
+
+    const hooksJson = JSON.parse(
+      await fs.readFile(path.join(tempHome, '.codex', 'hooks.json'), 'utf-8'),
+    );
+    expect(Array.isArray(hooksJson.hooks)).toBe(true);
+    const events = hooksJson.hooks.map((h: any) => h.event);
+    expect(events).toContain('PreToolUse');
+    expect(events).toContain('PostToolUse');
+    for (const h of hooksJson.hooks) {
+      expect(h.matcher).toBe('Bash');
+    }
+  });
+
+  it('keeps existing non-GitNexus hooks.json entries after setup', async () => {
+    if (process.platform === 'win32') return;
+
+    const hooksPath = path.join(tempHome, '.codex', 'hooks.json');
+    await fs.writeFile(
+      hooksPath,
+      JSON.stringify({
+        hooks: [{ name: 'user-custom', event: 'PostToolUse', matcher: 'Bash', command: 'echo hi' }],
+      }),
+      'utf-8',
+    );
+
+    await setupCommand();
+
+    const hooksJson = JSON.parse(await fs.readFile(hooksPath, 'utf-8'));
+    const names = hooksJson.hooks.map((h: any) => h.name);
+    expect(names).toContain('user-custom');
+    expect(names).toContain('gitnexus-pre');
+    expect(names).toContain('gitnexus-post');
+  });
+
+  it('gitnexus hooks.json entries are idempotent across repeated setup runs', async () => {
+    if (process.platform === 'win32') return;
+
+    await setupCommand();
+    await setupCommand();
+
+    const hooksJson = JSON.parse(
+      await fs.readFile(path.join(tempHome, '.codex', 'hooks.json'), 'utf-8'),
+    );
+    const preEntries = hooksJson.hooks.filter((h: any) => h.name === 'gitnexus-pre');
+    const postEntries = hooksJson.hooks.filter((h: any) => h.name === 'gitnexus-post');
+    expect(preEntries).toHaveLength(1);
+    expect(postEntries).toHaveLength(1);
   });
 });
