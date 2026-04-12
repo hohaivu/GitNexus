@@ -92,34 +92,38 @@ This project is indexed by GitNexus as **GitNexus** (26675 symbols, 35395 relati
 
 ## CLI
 
-| Task | Read this skill file |
-|------|---------------------|
-| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md` |
-| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
-| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md` |
-| Rename / extract / split / refactor | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md` |
-| Tools, resources, schema reference | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md` |
-| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
-| Work in the Ingestion area (239 symbols) | `.claude/skills/generated/ingestion/SKILL.md` |
-| Work in the Extractors area (135 symbols) | `.claude/skills/generated/extractors/SKILL.md` |
-| Work in the Components area (112 symbols) | `.claude/skills/generated/components/SKILL.md` |
-| Work in the Lbug area (96 symbols) | `.claude/skills/generated/lbug/SKILL.md` |
-| Work in the Group area (94 symbols) | `.claude/skills/generated/group/SKILL.md` |
-| Work in the Cli area (92 symbols) | `.claude/skills/generated/cli/SKILL.md` |
-| Work in the Configs area (92 symbols) | `.claude/skills/generated/configs/SKILL.md` |
-| Work in the Type-extractors area (90 symbols) | `.claude/skills/generated/type-extractors/SKILL.md` |
-| Work in the Hooks area (88 symbols) | `.claude/skills/generated/hooks/SKILL.md` |
-| Work in the Unit area (80 symbols) | `.claude/skills/generated/unit/SKILL.md` |
-| Work in the Cpp area (73 symbols) | `.claude/skills/generated/cpp/SKILL.md` |
-| Work in the Scope-resolution area (72 symbols) | `.claude/skills/generated/scope-resolution/SKILL.md` |
-| Work in the Server area (66 symbols) | `.claude/skills/generated/server/SKILL.md` |
-| Work in the Local area (61 symbols) | `.claude/skills/generated/local/SKILL.md` |
-| Work in the Wiki area (60 symbols) | `.claude/skills/generated/wiki/SKILL.md` |
-| Work in the Workers area (57 symbols) | `.claude/skills/generated/workers/SKILL.md` |
-| Work in the Embeddings area (56 symbols) | `.claude/skills/generated/embeddings/SKILL.md` |
-| Work in the Typescript area (53 symbols) | `.claude/skills/generated/typescript/SKILL.md` |
-| Work in the Storage area (51 symbols) | `.claude/skills/generated/storage/SKILL.md` |
-| Work in the Php area (48 symbols) | `.claude/skills/generated/php/SKILL.md` |
+1. `gitnexus_impact` was run for all modified symbols
+2. No HIGH/CRITICAL warnings were ignored
+3. `gitnexus_detect_changes()` confirms expected scope
+4. All d=1 dependents were updated
+
+## Keeping the Index Fresh
+
+```bash
+gitnexus analyze                 # basic refresh; preserves any existing embeddings
+gitnexus analyze --force         # full rebuild from scratch (opt out of incremental)
+gitnexus analyze --embeddings    # also generate embeddings for new/changed nodes
+gitnexus analyze --drop-embeddings  # explicit opt-in to wipe existing embeddings
+```
+
+`analyze` runs **incrementally by default**. The pipeline still parses every file every run (cross-file resolution requires it), but tree-sitter parsing is **served from a content-addressed cache** at `.gitnexus/parse-cache.json` for chunks whose file contents haven't changed since the last run. Only changed-file rows (and their importers) are rewritten in LadybugDB; unchanged-file rows are preserved. Output is byte-equivalent to a full rebuild. Pass `--force` to wipe and re-index from scratch (e.g., to recover from a corrupt index, or after upgrading GitNexus).
+
+The parse cache key is **content-addressed and version-tagged**: it survives `--force` runs, and is automatically invalidated by a `gitnexus` package upgrade (so a new tree-sitter grammar doesn't silently replay stale parse output). Safe to delete `.gitnexus/parse-cache.json` at any time — it'll be rebuilt on the next analyze.
+
+Check `.gitnexus/meta.json` `stats.embeddings` (0 = none). A plain `analyze` no longer drops existing vectors — pass `--drop-embeddings` to wipe.
+
+> Claude Code: PostToolUse hook detects a stale index after `git commit` and `git merge` and prompts the agent to run `analyze`. The hook does not invoke `analyze` itself.
+
+## CLI Skills
+
+| Task | Skill file |
+|------|-----------|
+| Architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md` |
+| Blast radius / "What breaks?" | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
+| Debugging / "Why is X failing?" | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md` |
+| Refactoring | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md` |
+| Tools/resources/schema reference | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md` |
+| CLI commands (index, status, clean, wiki) | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
 
 <!-- gitnexus:end -->
 
