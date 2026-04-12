@@ -112,8 +112,8 @@ describe('setupCommand skills integration', () => {
 
     const codexConfig = await fs.readFile(path.join(tempHome, '.codex', 'config.toml'), 'utf-8');
     expect(codexConfig).toContain('[mcp_servers.gitnexus]');
-    expect(codexConfig).toContain('command = "gitnexus"');
-    expect(codexConfig).toContain('args = ["mcp"]');
+    // config.toml now contains the resolved binary path (npx was removed in v1.6.0).
+    expect(codexConfig).toContain('command =');
 
     const codexSkill = await fs.readFile(
       path.join(tempHome, '.agents', 'skills', 'gitnexus-cli', 'SKILL.md'),

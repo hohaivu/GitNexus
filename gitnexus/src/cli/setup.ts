@@ -963,6 +963,8 @@ export const setupCommand = async () => {
   await installClaudeCodeHooks(result);
   await installOpenCodeSkills(result);
   await installOpenCodePlugin(result);
+  await installCodexSkills(result);
+  await installCodexHooks(result);
 
   // Print results
   if (result.configured.length > 0) {
