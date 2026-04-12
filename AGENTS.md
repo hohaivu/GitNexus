@@ -64,7 +64,7 @@ Commands and gotchas live under **Repo reference** below and in **[CONTRIBUTING.
 
 Indexed as **GitNexus** (4325 symbols, 10556 relationships, 300 execution flows). Use MCP tools to understand code, assess impact, and navigate safely.
 
-> If any tool warns the index is stale, run `npx gitnexus analyze` first.
+> If any tool warns the index is stale, run `gitnexus analyze` first.
 
 ## Always Do
 

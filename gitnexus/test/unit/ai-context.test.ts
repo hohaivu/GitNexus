@@ -276,4 +276,15 @@ describe('generateAIContextFiles', () => {
       await fs.rm(crlfDir, { recursive: true, force: true });
     }
   });
+
+  it('generated context does not contain npx gitnexus commands', async () => {
+    const stats = { nodes: 100, edges: 200, processes: 10 };
+    await generateAIContextFiles(tmpDir, storagePath, 'TestProject', stats);
+
+    const claudeMdPath = path.join(tmpDir, 'CLAUDE.md');
+    const content = await fs.readFile(claudeMdPath, 'utf-8');
+
+    expect(content).not.toContain('npx gitnexus');
+    expect(content).toContain('gitnexus analyze');
+  });
 });
