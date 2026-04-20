@@ -38,14 +38,14 @@ To configure MCP for your editor, run `npx gitnexus setup` once — or set it up
 
 ### Editor Support
 
-| Editor                   | MCP | Skills | Hooks (auto-augment)                                                                       | Support      |
-| ------------------------ | --- | ------ | ------------------------------------------------------------------------------------------ | ------------ |
-| **Claude Code**          | Yes | Yes    | Yes (PreToolUse)                                                                           | **Full**     |
-| **Cursor**               | Yes | Yes    | Yes (postToolUse, [manual install](../gitnexus-cursor-integration/README.md#hook-install)) | **Full**     |
-| **Antigravity** (Google) | Yes | Yes    | Yes (AfterTool, [Gemini CLI hooks schema](https://geminicli.com/docs/hooks/reference/))    | **Full**     |
-| **Codex**                | Yes | Yes    | —                                                                                          | MCP + Skills |
-| **Windsurf**             | Yes | —      | —                                                                                          | MCP          |
-| **OpenCode**             | Yes | Yes    | —                                                                                          | MCP + Skills |
+| Editor                   | MCP | Skills | Hooks (auto-augment)                                                                       | Support               |
+| ------------------------ | --- | ------ | ------------------------------------------------------------------------------------------ | --------------------- |
+| **Claude Code**          | Yes | Yes    | Yes (PreToolUse)                                                                           | **Full**              |
+| **Cursor**               | Yes | Yes    | Yes (postToolUse, [manual install](../gitnexus-cursor-integration/README.md#hook-install)) | **Full**              |
+| **Antigravity** (Google) | Yes | Yes    | Yes (AfterTool, [Gemini CLI hooks schema](https://geminicli.com/docs/hooks/reference/))    | **Full**              |
+| **Codex**                | Yes | Yes    | —                                                                                          | MCP + Skills          |
+| **Windsurf**             | Yes | —      | —                                                                                          | MCP                   |
+| **OpenCode**             | Yes | Yes    | Yes (plugin)                                                                               | MCP + Skills + Plugin |
 
 > **Claude Code** gets the deepest integration: MCP tools + agent skills + PreToolUse hooks that automatically enrich grep/glob/bash calls with knowledge graph context.
 
@@ -92,18 +92,29 @@ Add to `~/.cursor/mcp.json` (global — works for all projects):
 
 ### OpenCode
 
-Add to `~/.config/opencode/config.json`:
+`gitnexus setup` configures OpenCode in three pieces:
+
+- MCP server entry in `~/.config/opencode/opencode.json`
+- global GitNexus skills in `~/.config/opencode/skills/`
+- global GitNexus plugin in `~/.config/opencode/plugins/gitnexus.js`
+
+If you prefer to configure only MCP manually, add to `~/.config/opencode/opencode.json`:
 
 ```json
 {
   "mcp": {
     "gitnexus": {
-      "command": "npx",
-      "args": ["-y", "gitnexus@latest", "mcp"]
+      "command": "gitnexus",
+      "args": ["mcp"]
     }
   }
 }
 ```
+
+OpenCode plugin parity currently covers:
+
+- search-context augmentation for supported `grep`, `glob`, and `bash` search tool runs
+- stale-index warnings after successful git mutations that change repo state after indexing
 
 ## How It Works
 
@@ -250,7 +261,7 @@ GitNexus ships with skill files that teach AI agents how to use the tools effect
 - **Impact Analysis** — Analyze blast radius before changes
 - **Refactoring** — Plan safe refactors using dependency mapping
 
-Installed automatically by both `gitnexus analyze` (per-repo) and `gitnexus setup` (global).
+Installed automatically by both `gitnexus analyze` (per-repo) and `gitnexus setup` (global). OpenCode plugin installation happens in `gitnexus setup`.
 
 ## Requirements
 

@@ -191,8 +191,8 @@ codex mcp add gitnexus -- npx -y gitnexus@latest mcp
 {
   "mcpServers": {
     "gitnexus": {
-      "command": "npx",
-      "args": ["-y", "gitnexus@latest", "mcp"]
+      "command": "gitnexus",
+      "args": ["mcp"]
     }
   }
 }
@@ -200,18 +200,29 @@ codex mcp add gitnexus -- npx -y gitnexus@latest mcp
 
 > `gitnexus setup` also merges an `AfterTool` entry into `~/.gemini/settings.json` (under the canonical [Gemini CLI hooks schema](https://geminicli.com/docs/hooks/reference/)) and installs skills to `~/.gemini/antigravity/skills/`. Existing user hooks are preserved. The hook adapter's path is rewritten at install time, so run `gitnexus setup` rather than hand-editing.
 
-**OpenCode** (`~/.config/opencode/config.json`):
+**OpenCode** (`~/.config/opencode/opencode.json` for MCP, `~/.config/opencode/skills/` for skills, `~/.config/opencode/plugins/gitnexus.js` for plugin):
 
 ```json
 {
   "mcp": {
     "gitnexus": {
-      "type": "local",
-      "command": ["gitnexus", "mcp"]
+      "command": "gitnexus",
+      "args": ["mcp"]
     }
   }
 }
 ```
+
+`gitnexus setup` installs all three OpenCode pieces automatically:
+
+- MCP config in `opencode.json`
+- GitNexus skills in `~/.config/opencode/skills/`
+- GitNexus plugin in `~/.config/opencode/plugins/gitnexus.js`
+
+OpenCode plugin parity currently covers:
+
+- search-context augmentation for supported `grep`, `glob`, and `bash` search tools
+- stale-index warnings after successful git mutations that change repo state after indexing
 
 **Codex** (`~/.codex/config.toml` for system scope, or `.codex/config.toml` for project scope):
 

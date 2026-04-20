@@ -46,6 +46,8 @@ if (typeof _pkg.version !== 'string' || !_pkg.version) {
 // two are not unified (see the comment above and that file's MCP_PINNED_REF).
 const MCP_PINNED_REF = `gitnexus@${_pkg.version}`;
 
+const OPENCODE_PLUGIN_FILE = 'gitnexus.js';
+
 /**
  * Build the `command` string written into an editor's hook settings, which the
  * editor shell-evaluates. `hookPath` is already forward-slash-normalized.
@@ -787,6 +789,36 @@ async function setupOpenCode(result: SetupResult): Promise<void> {
 }
 
 /**
+ * Copy the OpenCode plugin into ~/.config/opencode/plugins/, injecting the
+ * resolved CLI path so the copied plugin can find the CLI even when it no
+ * longer lives inside the npm package tree. Idempotent — a repeat run
+ * overwrites the single gitnexus.js entry.
+ */
+async function installOpenCodePlugin(result: SetupResult): Promise<void> {
+  const opencodeDir = path.join(os.homedir(), '.config', 'opencode');
+  if (!(await dirExists(opencodeDir))) return;
+
+  const sourcePluginPath = path.join(__dirname, '..', '..', 'plugins', 'opencode', 'gitnexus.js');
+  const pluginsDir = path.join(opencodeDir, 'plugins');
+  const destPluginPath = path.join(pluginsDir, OPENCODE_PLUGIN_FILE);
+
+  try {
+    await fs.mkdir(pluginsDir, { recursive: true });
+
+    let content = await fs.readFile(sourcePluginPath, 'utf-8');
+    const resolvedCli = path.join(__dirname, '..', 'cli', 'index.js');
+    const normalizedCli = path.resolve(resolvedCli).replace(/\\/g, '/');
+    const jsonCli = JSON.stringify(normalizedCli);
+    content = content.replace("'__GITNEXUS_CLI_PATH__'", jsonCli);
+
+    await fs.writeFile(destPluginPath, content, 'utf-8');
+    result.configured.push(`OpenCode plugin (~/.config/opencode/plugins/${OPENCODE_PLUGIN_FILE})`);
+  } catch (err: any) {
+    result.errors.push(`OpenCode plugin: ${err.message}`);
+  }
+}
+
+/**
  * Build a TOML section for Codex MCP config (~/.codex/config.toml).
  */
 function getCodexMcpTomlSection(): string {
@@ -1038,6 +1070,7 @@ export const setupCommand = async (options?: { codingAgent?: string[] | string }
   }
   if (selected.has('cursor')) await installCursorSkills(result);
   if (selected.has('opencode')) await installOpenCodeSkills(result);
+  if (selected.has('opencode')) await installOpenCodePlugin(result);
   if (selected.has('codex')) await installCodexSkills(result);
 
   // Print results
