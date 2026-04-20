@@ -33,6 +33,7 @@
   "files": [
     "dist",
     "hooks",
+    "plugins",
     "scripts",
     "skills",
     "vendor",

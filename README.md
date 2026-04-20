@@ -167,18 +167,29 @@ codex mcp add gitnexus -- gitnexus mcp
 }
 ```
 
-**OpenCode** (`~/.config/opencode/config.json`):
+**OpenCode** (`~/.config/opencode/opencode.json` for MCP, `~/.config/opencode/skills/` for skills, `~/.config/opencode/plugins/gitnexus.js` for plugin):
 
 ```json
 {
   "mcp": {
     "gitnexus": {
-      "type": "local",
-      "command": ["gitnexus", "mcp"]
+      "command": "gitnexus",
+      "args": ["mcp"]
     }
   }
 }
 ```
+
+`gitnexus setup` installs all three OpenCode pieces automatically:
+
+- MCP config in `opencode.json`
+- GitNexus skills in `~/.config/opencode/skills/`
+- GitNexus plugin in `~/.config/opencode/plugins/gitnexus.js`
+
+OpenCode plugin parity currently covers:
+
+- search-context augmentation for supported `grep`, `glob`, and `bash` search tools
+- stale-index warnings after successful git mutations that change repo state after indexing
 
 **Codex** (`~/.codex/config.toml` for system scope, or `.codex/config.toml` for project scope):
 

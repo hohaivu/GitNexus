@@ -26,6 +26,8 @@ interface SetupResult {
   errors: string[];
 }
 
+const OPENCODE_PLUGIN_FILE = 'gitnexus.js';
+
 /**
  * Resolve the absolute path to the `gitnexus` binary if it's installed
  * globally (or via npm -g / yarn global). Returns null when not found.
@@ -67,6 +69,18 @@ function resolveGitnexusBin(): string | null {
  */
 function getMcpEntry(bin: string): { command: string; args: string[] } {
   return { command: bin, args: ['mcp'] };
+}
+
+function getOpenCodeMcpEntry(bin: string): {
+  type: 'local';
+  command: string[];
+  enabled: true;
+} {
+  return {
+    type: 'local',
+    command: [bin, 'mcp'],
+    enabled: true,
+  };
 }
 
 /**
@@ -398,7 +412,7 @@ async function setupOpenCode(result: SetupResult, bin: string): Promise<void> {
   try {
     const ok = await mergeJsoncFile(configPath, ['mcp', 'gitnexus'], getOpenCodeMcpEntry(bin));
     if (ok) {
-      result.configured.push('OpenCode');
+      result.configured.push('OpenCode MCP');
     } else {
       result.errors.push(
         'OpenCode: opencode.json is corrupt — skipping to preserve existing content',
@@ -406,6 +420,30 @@ async function setupOpenCode(result: SetupResult, bin: string): Promise<void> {
     }
   } catch (err: any) {
     result.errors.push(`OpenCode: ${err.message}`);
+  }
+}
+
+async function installOpenCodePlugin(result: SetupResult): Promise<void> {
+  const opencodeDir = path.join(os.homedir(), '.config', 'opencode');
+  if (!(await dirExists(opencodeDir))) return;
+
+  const sourcePluginPath = path.join(__dirname, '..', '..', 'plugins', 'opencode', 'gitnexus.js');
+  const pluginsDir = path.join(opencodeDir, 'plugins');
+  const destPluginPath = path.join(pluginsDir, OPENCODE_PLUGIN_FILE);
+
+  try {
+    await fs.mkdir(pluginsDir, { recursive: true });
+
+    let content = await fs.readFile(sourcePluginPath, 'utf-8');
+    const resolvedCli = path.join(__dirname, '..', 'cli', 'index.js');
+    const normalizedCli = path.resolve(resolvedCli).replace(/\\/g, '/');
+    const jsonCli = JSON.stringify(normalizedCli);
+    content = content.replace("'__GITNEXUS_CLI_PATH__'", jsonCli);
+
+    await fs.writeFile(destPluginPath, content, 'utf-8');
+    result.configured.push(`OpenCode plugin (~/.config/opencode/plugins/${OPENCODE_PLUGIN_FILE})`);
+  } catch (err: any) {
+    result.errors.push(`OpenCode plugin: ${err.message}`);
   }
 }
 
@@ -695,11 +733,125 @@ async function installOpenCodeSkills(result: SetupResult): Promise<void> {
     const installed = await installSkillsTo(skillsDir);
     if (installed.length > 0) {
       result.configured.push(
-        `OpenCode skills (${installed.length} skills → ~/.config/opencode/skill/)`,
+        `OpenCode skills (${installed.length} skills → ~/.config/opencode/skills/)`,
       );
     }
   } catch (err: any) {
     result.errors.push(`OpenCode skills: ${err.message}`);
+  }
+}
+
+// ─── Gemini CLI setup ─────────────────────────────────────────────
+
+async function setupGeminiCli(result: SetupResult, bin: string): Promise<void> {
+  const geminiDir = path.join(os.homedir(), '.gemini');
+  if (!(await dirExists(geminiDir))) {
+    result.skipped.push('Gemini CLI (not installed)');
+    return;
+  }
+
+  const settingsPath = path.join(geminiDir, 'settings.json');
+  try {
+    const existing = await readJsonFile(settingsPath);
+    const updated = mergeMcpConfig(existing, bin);
+    await writeJsonFile(settingsPath, updated);
+    result.configured.push('Gemini CLI');
+  } catch (err: any) {
+    result.errors.push(`Gemini CLI: ${err.message}`);
+  }
+}
+
+/**
+ * Install GitNexus skills to ~/.agents/skills/ for Gemini CLI.
+ *
+ * Gemini CLI discovers skills from both ~/.agents/skills/ (higher priority)
+ * and ~/.gemini/skills/. Installing to ~/.agents/skills/ avoids conflicts when
+ * both paths are present (e.g. when Codex is also installed).
+ */
+async function installGeminiCliSkills(result: SetupResult): Promise<void> {
+  const geminiDir = path.join(os.homedir(), '.gemini');
+  if (!(await dirExists(geminiDir))) return;
+
+  const skillsDir = path.join(os.homedir(), '.agents', 'skills');
+  try {
+    const installed = await installSkillsTo(skillsDir);
+    if (installed.length > 0) {
+      result.configured.push(`Gemini CLI skills (${installed.length} skills → ~/.agents/skills/)`);
+    }
+  } catch (err: any) {
+    result.errors.push(`Gemini CLI skills: ${err.message}`);
+  }
+}
+
+/**
+ * Install GitNexus hooks to ~/.gemini/settings.json for Gemini CLI.
+ * Merges hook config without overwriting existing hooks.
+ */
+async function installGeminiCliHooks(result: SetupResult): Promise<void> {
+  const geminiDir = path.join(os.homedir(), '.gemini');
+  if (!(await dirExists(geminiDir))) return;
+
+  const settingsPath = path.join(geminiDir, 'settings.json');
+
+  // Source hooks bundled within the gitnexus package (hooks/gemini/)
+  const pluginHooksPath = path.join(__dirname, '..', '..', 'hooks', 'gemini');
+
+  // Copy unified hook script to ~/.gemini/hooks/gitnexus/
+  const destHooksDir = path.join(geminiDir, 'hooks', 'gitnexus');
+
+  try {
+    await fs.mkdir(destHooksDir, { recursive: true });
+
+    const src = path.join(pluginHooksPath, 'gitnexus-hook.cjs');
+    const dest = path.join(destHooksDir, 'gitnexus-hook.cjs');
+    try {
+      let content = await fs.readFile(src, 'utf-8');
+      // Inject resolved CLI path so the copied hook can find the CLI
+      // even when it's no longer inside the npm package tree
+      const resolvedCli = path.join(__dirname, '..', 'cli', 'index.js');
+      const normalizedCli = path.resolve(resolvedCli).replace(/\\/g, '/');
+      const jsonCli = JSON.stringify(normalizedCli);
+      content = content.replace(
+        "let cliPath = path.resolve(__dirname, '..', '..', 'dist', 'cli', 'index.js');",
+        `let cliPath = ${jsonCli};`,
+      );
+      await fs.writeFile(dest, content, 'utf-8');
+    } catch {
+      // Script not found in source — skip
+    }
+
+    const hookPath = path.join(destHooksDir, 'gitnexus-hook.cjs').replace(/\\/g, '/');
+    const hookCmd = `node "${hookPath.replace(/"/g, '\\"')}"`;
+
+    // Merge hook config into ~/.gemini/settings.json
+    const existing = (await readJsonFile(settingsPath)) || {};
+    if (!existing.hooks) existing.hooks = {};
+
+    // Helper: add a hook entry if one with 'gitnexus-hook' isn't already registered
+    interface HookEntry {
+      hooks?: Array<{ command?: string }>;
+    }
+    function ensureHookEntry(eventName: string, matcher: string, timeout: number) {
+      if (!existing.hooks[eventName]) existing.hooks[eventName] = [];
+      const hasHook = existing.hooks[eventName].some((h: HookEntry) =>
+        h.hooks?.some((hh) => hh.command?.includes('gitnexus-hook')),
+      );
+      if (!hasHook) {
+        existing.hooks[eventName].push({
+          matcher,
+          hooks: [{ type: 'command', command: hookCmd, name: 'gitnexus', timeout }],
+        });
+      }
+    }
+
+    // Gemini CLI uses BeforeTool / AfterTool with snake_case tool matchers
+    ensureHookEntry('BeforeTool', 'run_shell_command|search_file_content|list_directory', 10000);
+    ensureHookEntry('AfterTool', 'run_shell_command', 10000);
+
+    await writeJsonFile(settingsPath, existing);
+    result.configured.push('Gemini CLI hooks (BeforeTool, AfterTool)');
+  } catch (err: any) {
+    result.errors.push(`Gemini CLI hooks: ${err.message}`);
   }
 }
 
@@ -760,14 +912,18 @@ export const setupCommand = async () => {
   await setupClaudeCode(result, gitnexusBin);
   await setupOpenCode(result, gitnexusBin);
   await setupCodex(result, gitnexusBin);
+  await setupGeminiCli(result, gitnexusBin);
 
   // Install global skills for platforms that support them
   await installClaudeCodeSkills(result);
   await installClaudeCodeHooks(result);
   await installCursorSkills(result);
   await installOpenCodeSkills(result);
+  await installOpenCodePlugin(result);
   await installCodexSkills(result);
   await installCodexHooks(result);
+  await installGeminiCliSkills(result);
+  await installGeminiCliHooks(result);
 
   // Print results
   if (result.configured.length > 0) {
@@ -795,11 +951,19 @@ export const setupCommand = async () => {
 
   console.log('');
   console.log('  Summary:');
+  const mcpConfigured = result.configured.filter((c) => !/(skills|hooks|plugin)/i.test(c));
+  const skillsInstalled = result.configured.filter((c) => /skills/i.test(c));
+  const pluginsInstalled = result.configured.filter((c) => /plugin/i.test(c));
+  const hooksInstalled = result.configured.filter((c) => /hooks/i.test(c));
+  console.log(`    MCP configured for: ${mcpConfigured.join(', ') || 'none'}`);
   console.log(
-    `    MCP configured for: ${result.configured.filter((c) => !c.includes('skills')).join(', ') || 'none'}`,
+    `    Skills installed to: ${skillsInstalled.length > 0 ? skillsInstalled.join(', ') : 'none'}`,
   );
   console.log(
-    `    Skills installed to: ${result.configured.filter((c) => c.includes('skills')).length > 0 ? result.configured.filter((c) => c.includes('skills')).join(', ') : 'none'}`,
+    `    Plugins installed to: ${pluginsInstalled.length > 0 ? pluginsInstalled.join(', ') : 'none'}`,
+  );
+  console.log(
+    `    Hooks installed for: ${hooksInstalled.length > 0 ? hooksInstalled.join(', ') : 'none'}`,
   );
   console.log('');
   console.log('  Next steps:');

@@ -118,6 +118,62 @@ describe('setupCommand skills integration', () => {
 
     expect(sectionMatches).toHaveLength(1);
   });
+
+  it('installs OpenCode MCP, skills, and plugin without overwriting unrelated config', async () => {
+    await fs.mkdir(path.join(tempHome, '.config', 'opencode'), { recursive: true });
+    await fs.writeFile(
+      path.join(tempHome, '.config', 'opencode', 'opencode.json'),
+      JSON.stringify({ theme: 'tokyo-night', mcp: { existing: { command: 'other' } } }),
+      'utf-8',
+    );
+
+    await setupCommand();
+
+    const config = JSON.parse(
+      await fs.readFile(path.join(tempHome, '.config', 'opencode', 'opencode.json'), 'utf-8'),
+    );
+    expect(config.theme).toBe('tokyo-night');
+    expect(config.mcp.existing).toEqual({ command: 'other' });
+    expect(config.mcp.gitnexus).toEqual({
+      type: 'local',
+      command: expect.arrayContaining(['mcp']),
+      enabled: true,
+    });
+
+    const openCodeSkill = await fs.readFile(
+      path.join(tempHome, '.config', 'opencode', 'skills', 'gitnexus-cli', 'SKILL.md'),
+      'utf-8',
+    );
+    expect(openCodeSkill).toContain('GitNexus CLI Commands');
+
+    const plugin = await fs.readFile(
+      path.join(tempHome, '.config', 'opencode', 'plugins', 'gitnexus.js'),
+      'utf-8',
+    );
+    expect(plugin).toContain('GitNexusOpenCodePlugin');
+    expect(plugin).toContain('const PLACEHOLDER_CLI_PATH = "');
+    expect(plugin).toContain('src/cli/index.js');
+  });
+
+  it('keeps a single OpenCode plugin installation on repeated setup runs', async () => {
+    await fs.mkdir(path.join(tempHome, '.config', 'opencode'), { recursive: true });
+
+    await setupCommand();
+    await setupCommand();
+
+    const pluginEntries = await fs.readdir(path.join(tempHome, '.config', 'opencode', 'plugins'));
+    expect(pluginEntries.filter((entry) => entry === 'gitnexus.js')).toHaveLength(1);
+
+    const config = JSON.parse(
+      await fs.readFile(path.join(tempHome, '.config', 'opencode', 'opencode.json'), 'utf-8'),
+    );
+    expect(Object.keys(config.mcp).filter((key) => key === 'gitnexus')).toHaveLength(1);
+    expect(config.mcp.gitnexus).toEqual({
+      type: 'local',
+      command: expect.arrayContaining(['mcp']),
+      enabled: true,
+    });
+  });
 });
 
 /**
