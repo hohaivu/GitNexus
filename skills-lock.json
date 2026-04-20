@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "skills": {
+    "opencode-primitives": {
+      "source": "different-ai/openwork",
+      "sourceType": "github",
+      "computedHash": "73c8d2f0bb3fc056d3797fb3a83671cc2278eda66424cc76447564f26bce594f"
+    }
+  }
+}
