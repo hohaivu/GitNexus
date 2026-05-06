@@ -70,8 +70,8 @@ Add to `~/.cursor/mcp.json` (global — works for all projects):
 {
   "mcpServers": {
     "gitnexus": {
-      "command": "npx",
-      "args": ["-y", "gitnexus@latest", "mcp"]
+      "command": "gitnexus",
+      "args": ["mcp"]
     }
   }
 }
@@ -91,8 +91,9 @@ If you prefer to configure only MCP manually, add to `~/.config/opencode/opencod
 {
   "mcp": {
     "gitnexus": {
-      "command": "gitnexus",
-      "args": ["mcp"]
+      "type": "local",
+      "command": ["gitnexus", "mcp"],
+      "enabled": true
     }
   }
 }

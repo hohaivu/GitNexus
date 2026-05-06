@@ -3,11 +3,6 @@ import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import { parse as parseJsonc } from 'jsonc-parser';
-import { createRequire } from 'module';
-
-const PKG_VERSION = (createRequire(import.meta.url)('../../package.json') as { version: string })
-  .version;
-const NPX_REF = `gitnexus@${PKG_VERSION}`;
 
 const execFileMock = vi.fn((...args: any[]) => {
   const callback = args.at(-1);
@@ -202,7 +197,8 @@ describe('setupOpenCode — JSONC preservation', () => {
     expect(config.mcp.other).toEqual({ command: 'keep' });
     expect(config.mcp.gitnexus).toEqual({
       type: 'local',
-      command: ['/usr/local/bin/gitnexus', 'mcp'],
+      command: ['gitnexus', 'mcp'],
+      enabled: true,
     });
   });
 
@@ -218,7 +214,7 @@ describe('setupOpenCode — JSONC preservation', () => {
     expect(raw).not.toContain('gitnexus');
   });
 
-  it('uses npx fallback format when gitnexus binary is not on PATH', async () => {
+  it('uses literal command when gitnexus binary is not on PATH', async () => {
     execFileSyncMock.mockImplementation(() => {
       throw new Error('not found');
     });
@@ -237,8 +233,11 @@ describe('setupOpenCode — JSONC preservation', () => {
 
     expect(config.mcp.gitnexus).toEqual({
       type: 'local',
-      command: ['npx', '-y', NPX_REF, 'mcp'],
+      command: ['gitnexus', 'mcp'],
+      enabled: true,
     });
+    expect(config.mcp.gitnexus.command).not.toContain('npx');
+    expect(config.mcp.gitnexus.command).not.toContain('gitnexus@latest');
   });
 
   it('uses Windows npx fallback when where returns only a non-wrapper shim', async () => {

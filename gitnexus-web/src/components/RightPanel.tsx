@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
+import type { MutableRefObject } from 'react';
 import {
   Send,
   Square,
@@ -290,7 +291,12 @@ export const RightPanel = () => {
           )}
 
           {/* Messages */}
-          <div ref={scrollContainerRef} className="scrollbar-thin flex-1 overflow-y-auto p-4">
+          <div
+            ref={(element) => {
+              (scrollContainerRef as MutableRefObject<HTMLDivElement | null>).current = element;
+            }}
+            className="scrollbar-thin flex-1 overflow-y-auto p-4"
+          >
             {chatMessages.length === 0 ? (
               <div className="flex h-full flex-col items-center justify-center px-4 text-center">
                 <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-xl bg-gradient-to-br from-accent to-node-interface text-2xl shadow-glow">
@@ -314,7 +320,13 @@ export const RightPanel = () => {
                 </div>
               </div>
             ) : (
-              <div ref={messagesContainerRef} className="flex flex-col gap-6">
+              <div
+                ref={(element) => {
+                  (messagesContainerRef as MutableRefObject<HTMLDivElement | null>).current =
+                    element;
+                }}
+                className="flex flex-col gap-6"
+              >
                 {chatMessages.map((message) => (
                   <div key={message.id} className="animate-fade-in">
                     {/* User message - compact label style */}
