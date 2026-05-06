@@ -197,7 +197,8 @@ describe('setupOpenCode — JSONC preservation', () => {
     expect(config.mcp.other).toEqual({ command: 'keep' });
     expect(config.mcp.gitnexus).toEqual({
       type: 'local',
-      command: ['/usr/local/bin/gitnexus', 'mcp'],
+      command: ['gitnexus', 'mcp'],
+      enabled: true,
     });
   });
 
@@ -213,7 +214,7 @@ describe('setupOpenCode — JSONC preservation', () => {
     expect(raw).not.toContain('gitnexus');
   });
 
-  it('uses npx fallback format when gitnexus binary is not on PATH', async () => {
+  it('uses literal command when gitnexus binary is not on PATH', async () => {
     execFileSyncMock.mockImplementation(() => {
       throw new Error('not found');
     });
@@ -232,8 +233,11 @@ describe('setupOpenCode — JSONC preservation', () => {
 
     expect(config.mcp.gitnexus).toEqual({
       type: 'local',
-      command: ['npx', '-y', 'gitnexus@latest', 'mcp'],
+      command: ['gitnexus', 'mcp'],
+      enabled: true,
     });
+    expect(config.mcp.gitnexus.command).not.toContain('npx');
+    expect(config.mcp.gitnexus.command).not.toContain('gitnexus@latest');
   });
 
   it('preserves tab indentation in existing file', async () => {

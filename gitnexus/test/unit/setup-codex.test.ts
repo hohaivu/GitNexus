@@ -10,8 +10,13 @@ const execFileMock = vi.fn((...args: any[]) => {
   }
 });
 
+const execFileSyncMock = vi.fn(() => {
+  throw new Error('not found');
+});
+
 vi.mock('child_process', () => ({
   execFile: execFileMock,
+  execFileSync: execFileSyncMock,
 }));
 
 describe('setupCommand codex execution', () => {
@@ -63,7 +68,7 @@ describe('setupCommand codex execution', () => {
 
     expect(execFileMock).toHaveBeenCalledWith(
       'codex',
-      ['mcp', 'add', 'gitnexus', '--', 'cmd', '/c', 'npx', '-y', 'gitnexus@latest', 'mcp'],
+      ['mcp', 'add', 'gitnexus', '--', 'gitnexus', 'mcp'],
       { shell: true },
       expect.any(Function),
     );
@@ -78,12 +83,13 @@ describe('setupCommand codex execution', () => {
 
     expect(execFileMock).toHaveBeenCalledWith(
       'codex',
-      ['mcp', 'add', 'gitnexus', '--', 'npx', '-y', 'gitnexus@latest', 'mcp'],
+      ['mcp', 'add', 'gitnexus', '--', 'gitnexus', 'mcp'],
       { shell: false },
       expect.any(Function),
     );
 
-    await expect(fs.access(path.join(tempHome, '.codex', 'config.toml'))).rejects.toThrow();
+    const codexConfig = await fs.readFile(path.join(tempHome, '.codex', 'config.toml'), 'utf-8');
+    expect(codexConfig).not.toContain('[mcp_servers.gitnexus]');
   });
 
   it('skips Codex setup entirely when ~/.codex is missing', async () => {

@@ -61,34 +61,26 @@ function resolveGitnexusBin(): string | null {
 }
 
 /**
- * The MCP server entry for all editors.
+ * The MCP server entry for command/args editors.
  *
- * Takes the pre-resolved local `gitnexus` binary path. Absolute path is
- * persisted so the entry works reliably in GUI-launched editor environments
- * where PATH may differ from a terminal session.
+ * Setup-generated MCP config is intentionally portable: always invoke
+ * GitNexus through PATH as `gitnexus mcp` instead of persisting a resolved
+ * machine-specific executable path.
  */
-function getMcpEntry(bin: string): { command: string; args: string[] } {
-  return { command: bin, args: ['mcp'] };
+function getMcpEntry(): { command: string; args: string[] } {
+  return { command: 'gitnexus', args: ['mcp'] };
 }
 
-function getOpenCodeMcpEntry(bin: string): {
+function getOpenCodeMcpEntry(): {
   type: 'local';
   command: string[];
   enabled: true;
 } {
   return {
     type: 'local',
-    command: [bin, 'mcp'],
+    command: ['gitnexus', 'mcp'],
     enabled: true,
   };
-}
-
-/**
- * OpenCode uses a different MCP format: { type: "local", command: [...] }
- * where command is a flat array (command + args combined).
- */
-function getOpenCodeMcpEntry(bin: string) {
-  return { type: 'local', command: [bin, 'mcp'] };
 }
 
 /**
@@ -141,6 +133,29 @@ async function mergeJsoncFile(
   return false;
 }
 
+async function readJsonFile(filePath: string): Promise<any | null> {
+  try {
+    const raw = await fs.readFile(filePath, 'utf-8');
+    if (raw.trim().length === 0) return null;
+    return parseJsonc(raw);
+  } catch (err: any) {
+    if (err?.code === 'ENOENT') return null;
+    throw err;
+  }
+}
+
+async function writeJsonFile(filePath: string, value: unknown): Promise<void> {
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  await fs.writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, 'utf-8');
+}
+
+function mergeMcpConfig(existing: any): any {
+  const next = existing && typeof existing === 'object' ? existing : {};
+  if (!next.mcpServers || typeof next.mcpServers !== 'object') next.mcpServers = {};
+  next.mcpServers.gitnexus = getMcpEntry();
+  return next;
+}
+
 /**
  * Check if a directory exists
  */
@@ -155,7 +170,7 @@ async function dirExists(dirPath: string): Promise<boolean> {
 
 // ─── Editor-specific setup ─────────────────────────────────────────
 
-async function setupCursor(result: SetupResult, bin: string): Promise<void> {
+async function setupCursor(result: SetupResult): Promise<void> {
   const cursorDir = path.join(os.homedir(), '.cursor');
   if (!(await dirExists(cursorDir))) {
     result.skipped.push('Cursor (not installed)');
@@ -164,7 +179,7 @@ async function setupCursor(result: SetupResult, bin: string): Promise<void> {
 
   const mcpPath = path.join(cursorDir, 'mcp.json');
   try {
-    const ok = await mergeJsoncFile(mcpPath, ['mcpServers', 'gitnexus'], getMcpEntry(bin));
+    const ok = await mergeJsoncFile(mcpPath, ['mcpServers', 'gitnexus'], getMcpEntry());
     if (ok) {
       result.configured.push('Cursor');
     } else {
@@ -175,7 +190,7 @@ async function setupCursor(result: SetupResult, bin: string): Promise<void> {
   }
 }
 
-async function setupClaudeCode(result: SetupResult, bin: string): Promise<void> {
+async function setupClaudeCode(result: SetupResult): Promise<void> {
   const claudeDir = path.join(os.homedir(), '.claude');
   if (!(await dirExists(claudeDir))) {
     result.skipped.push('Claude Code (not installed)');
@@ -185,7 +200,7 @@ async function setupClaudeCode(result: SetupResult, bin: string): Promise<void> 
   // Claude Code stores MCP config in ~/.claude.json
   const mcpPath = path.join(os.homedir(), '.claude.json');
   try {
-    const ok = await mergeJsoncFile(mcpPath, ['mcpServers', 'gitnexus'], getMcpEntry(bin));
+    const ok = await mergeJsoncFile(mcpPath, ['mcpServers', 'gitnexus'], getMcpEntry());
     if (ok) {
       result.configured.push('Claude Code');
     } else {
@@ -401,7 +416,7 @@ async function installClaudeCodeHooks(result: SetupResult): Promise<void> {
   }
 }
 
-async function setupOpenCode(result: SetupResult, bin: string): Promise<void> {
+async function setupOpenCode(result: SetupResult): Promise<void> {
   const opencodeDir = path.join(os.homedir(), '.config', 'opencode');
   if (!(await dirExists(opencodeDir))) {
     result.skipped.push('OpenCode (not installed)');
@@ -410,7 +425,7 @@ async function setupOpenCode(result: SetupResult, bin: string): Promise<void> {
 
   const configPath = path.join(opencodeDir, 'opencode.json');
   try {
-    const ok = await mergeJsoncFile(configPath, ['mcp', 'gitnexus'], getOpenCodeMcpEntry(bin));
+    const ok = await mergeJsoncFile(configPath, ['mcp', 'gitnexus'], getOpenCodeMcpEntry());
     if (ok) {
       result.configured.push('OpenCode MCP');
     } else {
@@ -450,8 +465,8 @@ async function installOpenCodePlugin(result: SetupResult): Promise<void> {
 /**
  * Build a TOML section for Codex MCP config (~/.codex/config.toml).
  */
-function getCodexMcpTomlSection(bin: string): string {
-  const entry = getMcpEntry(bin);
+function getCodexMcpTomlSection(): string {
+  const entry = getMcpEntry();
   const command = JSON.stringify(entry.command);
   const args = `[${entry.args.map((arg) => JSON.stringify(arg)).join(', ')}]`;
   return `[mcp_servers.gitnexus]\ncommand = ${command}\nargs = ${args}\n`;
@@ -579,7 +594,7 @@ async function installCodexHooks(result: SetupResult): Promise<void> {
 /**
  * Append GitNexus MCP server config to Codex's config.toml if missing.
  */
-async function upsertCodexConfigToml(configPath: string, bin: string): Promise<void> {
+async function upsertCodexConfigToml(configPath: string): Promise<void> {
   let existing = '';
   try {
     existing = await fs.readFile(configPath, 'utf-8');
@@ -591,14 +606,14 @@ async function upsertCodexConfigToml(configPath: string, bin: string): Promise<v
     return;
   }
 
-  const section = getCodexMcpTomlSection(bin);
+  const section = getCodexMcpTomlSection();
   const nextContent = existing.trim().length > 0 ? `${existing.trimEnd()}\n\n${section}` : section;
 
   await fs.mkdir(path.dirname(configPath), { recursive: true });
   await fs.writeFile(configPath, `${nextContent.trimEnd()}\n`, 'utf-8');
 }
 
-async function setupCodex(result: SetupResult, bin: string): Promise<void> {
+async function setupCodex(result: SetupResult): Promise<void> {
   const codexDir = path.join(os.homedir(), '.codex');
   if (!(await dirExists(codexDir))) {
     result.skipped.push('Codex (not installed)');
@@ -606,7 +621,7 @@ async function setupCodex(result: SetupResult, bin: string): Promise<void> {
   }
 
   try {
-    const entry = getMcpEntry(bin);
+    const entry = getMcpEntry();
     await execFileAsync('codex', ['mcp', 'add', 'gitnexus', '--', entry.command, ...entry.args], {
       shell: process.platform === 'win32',
     });
@@ -618,7 +633,7 @@ async function setupCodex(result: SetupResult, bin: string): Promise<void> {
 
   try {
     const configPath = path.join(codexDir, 'config.toml');
-    await upsertCodexConfigToml(configPath, bin);
+    await upsertCodexConfigToml(configPath);
     result.configured.push('Codex (MCP added to ~/.codex/config.toml)');
   } catch (err: any) {
     result.errors.push(`Codex: ${err.message}`);
@@ -743,7 +758,7 @@ async function installOpenCodeSkills(result: SetupResult): Promise<void> {
 
 // ─── Gemini CLI setup ─────────────────────────────────────────────
 
-async function setupGeminiCli(result: SetupResult, bin: string): Promise<void> {
+async function setupGeminiCli(result: SetupResult): Promise<void> {
   const geminiDir = path.join(os.homedir(), '.gemini');
   if (!(await dirExists(geminiDir))) {
     result.skipped.push('Gemini CLI (not installed)');
@@ -753,7 +768,7 @@ async function setupGeminiCli(result: SetupResult, bin: string): Promise<void> {
   const settingsPath = path.join(geminiDir, 'settings.json');
   try {
     const existing = await readJsonFile(settingsPath);
-    const updated = mergeMcpConfig(existing, bin);
+    const updated = mergeMcpConfig(existing);
     await writeJsonFile(settingsPath, updated);
     result.configured.push('Gemini CLI');
   } catch (err: any) {
@@ -881,20 +896,14 @@ export const setupCommand = async () => {
   console.log('  ==============');
   console.log('');
 
-  // Require a locally installed gitnexus binary before writing any config.
-  // Machine-written MCP and hook entries must reference a stable local
-  // executable — npx fallback is not supported.
+  // Warn when `gitnexus` is not currently resolvable, but keep generated MCP
+  // config deterministic. Setup entries always invoke `gitnexus mcp`.
   const gitnexusBin = resolveGitnexusBin();
   if (!gitnexusBin) {
-    console.log('  Error: gitnexus binary not found on PATH.');
+    console.log('  Warning: gitnexus binary not found on PATH.');
+    console.log('  Setup will still write MCP entries that run: gitnexus mcp');
+    console.log('  Ensure your editor environment can resolve `gitnexus` before using MCP.');
     console.log('');
-    console.log('  Install it globally first, then re-run setup:');
-    console.log('');
-    console.log('    npm install -g gitnexus');
-    console.log('    gitnexus setup');
-    console.log('');
-    process.exitCode = 1;
-    return;
   }
 
   // Ensure global directory exists
@@ -908,11 +917,11 @@ export const setupCommand = async () => {
   };
 
   // Detect and configure each editor's MCP
-  await setupCursor(result, gitnexusBin);
-  await setupClaudeCode(result, gitnexusBin);
-  await setupOpenCode(result, gitnexusBin);
-  await setupCodex(result, gitnexusBin);
-  await setupGeminiCli(result, gitnexusBin);
+  await setupCursor(result);
+  await setupClaudeCode(result);
+  await setupOpenCode(result);
+  await setupCodex(result);
+  await setupGeminiCli(result);
 
   // Install global skills for platforms that support them
   await installClaudeCodeSkills(result);

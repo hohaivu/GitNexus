@@ -1,4 +1,5 @@
 import { useEffect, useCallback, useMemo, useState, forwardRef, useImperativeHandle } from 'react';
+import type { MutableRefObject } from 'react';
 import {
   ZoomIn,
   ZoomOut,
@@ -245,7 +246,9 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle>((_, ref) => {
 
       {/* Sigma container */}
       <div
-        ref={containerRef}
+        ref={(element) => {
+          (containerRef as MutableRefObject<HTMLDivElement | null>).current = element;
+        }}
         className="sigma-container h-full w-full cursor-grab active:cursor-grabbing"
       />
 

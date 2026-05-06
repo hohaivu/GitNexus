@@ -97,8 +97,8 @@ describe('setupCommand skills integration', () => {
 
     const codexConfig = await fs.readFile(path.join(tempHome, '.codex', 'config.toml'), 'utf-8');
     expect(codexConfig).toContain('[mcp_servers.gitnexus]');
-    // config.toml now contains the resolved binary path (npx was removed in v1.6.0).
-    expect(codexConfig).toContain('command =');
+    expect(codexConfig).toContain('command = "gitnexus"');
+    expect(codexConfig).toContain('args = ["mcp"]');
 
     const codexSkill = await fs.readFile(
       path.join(tempHome, '.agents', 'skills', 'gitnexus-cli', 'SKILL.md'),
@@ -136,7 +136,7 @@ describe('setupCommand skills integration', () => {
     expect(config.mcp.existing).toEqual({ command: 'other' });
     expect(config.mcp.gitnexus).toEqual({
       type: 'local',
-      command: expect.arrayContaining(['mcp']),
+      command: ['gitnexus', 'mcp'],
       enabled: true,
     });
 
@@ -170,7 +170,7 @@ describe('setupCommand skills integration', () => {
     expect(Object.keys(config.mcp).filter((key) => key === 'gitnexus')).toHaveLength(1);
     expect(config.mcp.gitnexus).toEqual({
       type: 'local',
-      command: expect.arrayContaining(['mcp']),
+      command: ['gitnexus', 'mcp'],
       enabled: true,
     });
   });
@@ -178,8 +178,7 @@ describe('setupCommand skills integration', () => {
 
 /**
  * Codex hook setup tests — isolated describe block with per-test HOME and
- * original PATH so that `resolveGitnexusBin()` succeeds (required for
- * `setupCommand` to reach the `installCodexHooks` step).
+ * original PATH for hook setup tests.
  */
 describe('setupCommand Codex hook setup', () => {
   let tempHome: string;
