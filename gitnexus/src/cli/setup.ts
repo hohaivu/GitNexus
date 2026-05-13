@@ -950,23 +950,15 @@ export const setupCommand = async () => {
     errors: [],
   };
 
-  // Detect and configure each editor's MCP
-  await setupCursor(result);
+  // Detect and configure only first-class setup targets.
   await setupClaudeCode(result);
   await setupOpenCode(result);
-  await setupCodex(result);
-  await setupGeminiCli(result);
 
-  // Install global skills for platforms that support them
+  // Install assets only for first-class setup targets.
   await installClaudeCodeSkills(result);
   await installClaudeCodeHooks(result);
-  await installCursorSkills(result);
   await installOpenCodeSkills(result);
   await installOpenCodePlugin(result);
-  await installCodexSkills(result);
-  await installCodexHooks(result);
-  await installGeminiCliSkills(result);
-  await installGeminiCliHooks(result);
 
   // Print results
   if (result.configured.length > 0) {
