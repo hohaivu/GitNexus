@@ -41,7 +41,7 @@ describe('OpenCode plugin behavior', () => {
     fs.rmSync(tempDir, { recursive: true, force: true });
   });
 
-  it('appends GitNexus context for supported search tools in indexed repos', async () => {
+  it('appends GitNexus context to supported search tool output in indexed repos', async () => {
     const repoDir = path.join(tempDir, 'repo');
     fs.mkdirSync(path.join(repoDir, '.gitnexus'), { recursive: true });
 
@@ -59,9 +59,16 @@ describe('OpenCode plugin behavior', () => {
       worktree: repoDir,
     });
 
-    await plugin['tool.execute.before'](
+    const output = {
+      args: { pattern: 'validateUser', cwd: repoDir },
+      output: 'grep results',
+      metadata: { existing: true },
+      exitCode: 0,
+    };
+
+    await plugin['tool.execute.after'](
       { tool: 'grep', args: { pattern: 'validateUser', cwd: repoDir } },
-      { args: { pattern: 'validateUser', cwd: repoDir } },
+      output,
     );
 
     expect(spawnSyncImpl).toHaveBeenCalledWith(
@@ -69,11 +76,15 @@ describe('OpenCode plugin behavior', () => {
       ['/tmp/gitnexus-cli.js', 'augment', '--', 'validateUser'],
       expect.objectContaining({ cwd: repoDir }),
     );
-    expect(appendPrompt).toHaveBeenCalledWith(
-      expect.objectContaining({
-        body: expect.objectContaining({ text: expect.stringContaining('graph context') }),
-      }),
-    );
+    expect(output.output).toContain('grep results');
+    expect(output.output).toContain('[GitNexus context for validateUser]');
+    expect(output.output).toContain('graph context');
+    expect(output.metadata).toEqual({
+      existing: true,
+      gitnexusContextAdded: true,
+      gitnexusContextPattern: 'validateUser',
+    });
+    expect(appendPrompt).not.toHaveBeenCalled();
     expect(showToast).toHaveBeenCalledWith(
       expect.objectContaining({
         body: expect.objectContaining({ message: expect.stringContaining('validateUser') }),
@@ -92,7 +103,7 @@ describe('OpenCode plugin behavior', () => {
       worktree: tempDir,
     });
 
-    await plugin['tool.execute.before'](
+    await plugin['tool.execute.after'](
       { tool: 'read', args: { filePath: 'src/index.ts', cwd: tempDir } },
       { args: { filePath: 'src/index.ts', cwd: tempDir } },
     );
