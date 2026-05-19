@@ -194,17 +194,19 @@ async function safeLog(client, level, message, extra = {}) {
   }
 }
 
-async function surfaceSearchContext(client, pattern, context) {
+async function surfaceSearchContext(client, output, pattern, context) {
   await safeLog(client, 'info', 'GitNexus search context added', { pattern });
 
   try {
-    await client?.tui?.appendPrompt?.({
-      body: {
-        text: `\n[GitNexus context for ${pattern}]\n${context}\n`,
-      },
-    });
+    const existingOutput = typeof output?.output === 'string' ? output.output : '';
+    output.output = `${existingOutput}\n\n[GitNexus context for ${pattern}]\n${context}\n`;
+    output.metadata = {
+      ...(output.metadata || {}),
+      gitnexusContextAdded: true,
+      gitnexusContextPattern: pattern,
+    };
   } catch {
-    // ignore prompt append failures
+    // ignore output mutation failures
   }
 
   try {
@@ -240,41 +242,46 @@ function createGitNexusOpenCodePlugin(options = {}) {
 
   return async ({ client, directory, worktree }) => ({
     'tool.execute.before': async (input, output) => {
-      const toolName = normalizeToolName(input?.tool || input?.tool_name);
-      if (!SEARCH_TOOL_NAMES.has(toolName)) return;
-
-      const args = getToolArgs(input, output);
-      const pattern = extractSearchPattern(toolName, args);
-      if (!pattern) return;
-
-      const cwd = args.cwd || input?.cwd || worktree || directory || process.cwd();
-      if (!path.isAbsolute(cwd)) return;
-
-      const gitNexusDir = findGitNexusDir(cwd);
-      if (!gitNexusDir) return;
-
-      const cliPath = cliPathResolver();
-      try {
-        const child = runGitNexusCli(cliPath, ['augment', '--', pattern], cwd, 7000, spawnSyncImpl);
-        const context =
-          child && !child.error && child.status === 0 ? String(child.stderr || '').trim() : '';
-        if (!context) return;
-        await surfaceSearchContext(client, pattern, context);
-      } catch {
-        // never block tool execution
-      }
+      void input;
+      void output;
     },
 
     'tool.execute.after': async (input, output) => {
       const toolName = normalizeToolName(input?.tool || input?.tool_name);
+      const args = getToolArgs(input, output);
+      const cwd = args.cwd || input?.cwd || worktree || directory || process.cwd();
+
+      if (SEARCH_TOOL_NAMES.has(toolName) && isSuccessfulToolExecution(input, output)) {
+        const pattern = extractSearchPattern(toolName, args);
+        if (pattern && path.isAbsolute(cwd)) {
+          const gitNexusDir = findGitNexusDir(cwd);
+          if (gitNexusDir) {
+            const cliPath = cliPathResolver();
+            try {
+              const child = runGitNexusCli(
+                cliPath,
+                ['augment', '--', pattern],
+                cwd,
+                7000,
+                spawnSyncImpl,
+              );
+              const context =
+                child && !child.error && child.status === 0
+                  ? String(child.stderr || '').trim()
+                  : '';
+              if (context) await surfaceSearchContext(client, output, pattern, context);
+            } catch {
+              // never block tool execution
+            }
+          }
+        }
+      }
+
       if (toolName !== 'bash') return;
 
-      const args = getToolArgs(input, output);
       const command = typeof args.command === 'string' ? args.command : '';
       if (!GIT_MUTATION_COMMAND.test(command)) return;
       if (!isSuccessfulToolExecution(input, output)) return;
-
-      const cwd = args.cwd || input?.cwd || worktree || directory || process.cwd();
       if (!path.isAbsolute(cwd)) return;
 
       const gitNexusDir = findGitNexusDir(cwd);
