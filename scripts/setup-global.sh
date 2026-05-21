@@ -10,8 +10,13 @@ pnpm install
 echo "→ Building gitnexus..."
 pnpm --filter gitnexus build
 
-echo "→ Linking globally (replaces any npm-installed version)..."
+echo "→ Packing gitnexus..."
+rm -f "$REPO_ROOT"/gitnexus-*.tgz
 cd "$REPO_ROOT/gitnexus"
-npm link
+npm pack --pack-destination "$REPO_ROOT"
+
+echo "→ Installing packed tarball globally (replaces any npm-installed version)..."
+cd "$REPO_ROOT"
+npm install -g gitnexus-*.tgz
 
 echo "✓ Done. Run: gitnexus --version"
